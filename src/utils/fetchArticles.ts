@@ -1,63 +1,92 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
 import { Article } from '@/app/components/ArticleCard'
-import React from 'react'
-import articlefile from "@/app/articles.json"
+import articleFile from "@/app/articles.json"
 import * as cheerio from 'cheerio';
+import { getTitle } from './gettitle';
+import { getDescription } from './getDescription';
+import { getPublishedDate } from './gerPublisheddate';
+import { getImageURL } from './getImageURL';
+import { getPlatform } from './getPlatform';
 
-const fetchArticle = async (): Promise<Article[]> => {
-  console.log("fetching articles ..")
+export async function fetchArticles(): Promise<Article[]> {
+  console.log('Fetching articles...');
   const results = await Promise.all(
-  articlefile.articles.map(async (item) => {
-   // validate URL first
-   if(!item.url || typeof item.url !== 'string' || item.url.trim() === ""){
-    console.warn(`invalid URL: ${item.url}`)
-    return null
-   }
-   console.log('The URL' + item.url)
-  })
-  )
-   let data;
-   //fetch matadata and HTML frim the URL
-   try{
-    const response = await fetch(item.url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
+    articleFile.articles.map(async (item) => {
+      //Validate URL first
+       if (!item.url || typeof item.url !== 'string' || item.url.trim() === '') {
+        console.warn(`Invalid URL: ${item.url}`);
+        return null; // Skip this item
+      } 
+      console.log('The URL: ' + item.url);
+      let data;
+      try {
+
+        // Fetch metadata and HTML from the URL
+        const response = await fetch(item.url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/113.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://www.google.com/',
-      }
-    })
+            'Referer': 'https://www.google.com/', 
+          },
+        });
 
-    console.log('Fetched: '+ item.url);
+        console.log('Fetched: '+ item.url);
 
-      if (!response.ok) {
+        if (!response.ok) {
           console.error(`HTTP error! Status: ${response.status} for URL: ${item.url}`);
           throw new Error(`HTTP error! Status: ${response.status}`);
         }
 
-        const html = await response.text()
-         const $ = cheerio.load(html);
-         const jsonScript = $('script[type="application/ld+json"]').html();
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        const jsonScript = $('script[type="application/ld+json"]').html();
 
         console.log('Gotten HTML response');
 
-         if (!jsonScript) {
+        if (!jsonScript) {
           throw new Error('No JSON-LD script found on page');
         }
 
         const metadata = JSON.parse(jsonScript);
         console.log('Gotten metadata');
 
-        
+
         // Combine metadata and HTML into a single object
         data = { metadata, html };
+      } catch (error) {
+        console.error(`Failed to fetch metadata for URL: ${item.url}`, error);
+        return null;
+        console.log('The default empty object has been returned here');
+      }
 
-   }catch (error) {
-     console.error(`Failed to fetch metadata for URL: ${item.url}`, error);
-  
-   }
-   // Use the combined data (metadata and html) to construct the article object
- 
+      // Use the combined data (metadata and HTML) to construct the article object
+      if(getTitle(data) && getDescription(data) &&
+         getPublishedDate(data) && getImageURL(data) &&
+         getPlatform(data) || (item.title && item.description &&
+         item.image)) {
+        return {
+        ...item,
+        id: item.id ?? 0,
+        tags: item.tags ?? [],
+        title: getTitle(data) || item.title || 'No title',
+        description: item.description || getDescription(data) || 'No description',
+        publishedDate: getPublishedDate(data) ?? 'No date',
+        imgUrl: getImageURL(data) || item.image || '/img-2.jpg',
+        siteName: getPlatform(data) || data.metadata?.publisher?.name || 'Unknown site',
+        url: item.url || '',
+      } as Article;
+      console.log('Proper item returned');
+      } else { return null; }
+    })
+  );
+
+  // Filter out null values and sort the articles by published date in descending order
+  const filteredResults = results.filter((article): article is Article => article !== null);
+  const sortedResults = filteredResults.sort((a, b) => {
+    const dateA = new Date(a.publishedDate || '').getTime();
+    const dateB = new Date(b.publishedDate || '').getTime();
+    return dateB - dateA;
+  });
+  console.log(sortedResults);
+  return sortedResults;
 }
-
-export default fetchArticle
